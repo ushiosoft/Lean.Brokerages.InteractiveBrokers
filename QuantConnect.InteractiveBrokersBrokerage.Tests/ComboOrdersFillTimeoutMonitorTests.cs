@@ -1,4 +1,4 @@
-﻿/*
+/*
  * QUANTCONNECT.COM - Democratizing Finance, Empowering Individuals.
  * Lean Algorithmic Trading Engine v2.0. Copyright 2014 QuantConnect Corporation.
  *
@@ -58,7 +58,7 @@ namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
             _monitor.AddPendingFill(
                 Order.CreateOrder(new SubmitOrderRequest(OrderType.ComboMarket, SecurityType.Option, Symbols.SPY, 1, 0, 0, _timeProvider.GetUtcNow(), "")),
                 new IB.ExecutionDetailsEventArgs(1, new Contract(), new Execution()),
-                new CommissionAndFeesReport()
+                new CommissionReport()
             );
 
             Thread.Sleep(_timeout * 2);
@@ -97,7 +97,7 @@ namespace QuantConnect.Tests.Brokerages.InteractiveBrokers
                 _monitor.AddPendingFill(
                     Order.CreateOrder(new SubmitOrderRequest(OrderType.ComboMarket, SecurityType.Option, Symbols.SPY, 1, 0, 0, _timeProvider.GetUtcNow(), "")),
                     new IB.ExecutionDetailsEventArgs(1, new Contract(), new Execution()),
-                    new CommissionAndFeesReport()
+                    new CommissionReport()
                 );
 
                 _timeProvider.Advance(_timeout / 4);

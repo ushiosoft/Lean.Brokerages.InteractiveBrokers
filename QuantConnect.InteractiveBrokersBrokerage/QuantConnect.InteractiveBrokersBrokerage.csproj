@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Release</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
@@ -42,21 +42,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="IB.TWS.CSharpApi" Version="9.76.1" />
+  </ItemGroup>
+  <ItemGroup>
     <None Update="InteractiveBrokers\IB-symbol-map.json" Pack="True">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <PackageCopyToOutput>true</PackageCopyToOutput>
     </None>
-	<Reference Include="CSharpAPI">
-		<HintPath>CSharpAPI.dll</HintPath>
-	</Reference>
-	<None Update="CSharpAPI.dll" Pack="True">
-		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		<PackageCopyToOutput>true</PackageCopyToOutput>
-	</None>
-	<None Update="CSharpAPI.deps.json" Pack="True">
-		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		<PackageCopyToOutput>true</PackageCopyToOutput>
-	</None>
   </ItemGroup>
 
 </Project>

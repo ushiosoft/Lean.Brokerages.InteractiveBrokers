@@ -172,7 +172,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         private readonly ConcurrentDictionary<string, IB.ExecutionDetailsEventArgs> _orderExecutions = new ConcurrentDictionary<string, IB.ExecutionDetailsEventArgs>();
 
         // tracks commission reports before executions, map: execId -> commission report
-        private readonly ConcurrentDictionary<string, CommissionAndFeesReport> _commissionReports = new ConcurrentDictionary<string, CommissionAndFeesReport>();
+        private readonly ConcurrentDictionary<string, CommissionReport> _commissionReports = new ConcurrentDictionary<string, CommissionReport>();
 
         // holds account properties, cash balances and holdings for the account
         private readonly InteractiveBrokersAccountData _accountData = new InteractiveBrokersAccountData();
@@ -523,7 +523,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                     var eventSlim = new ManualResetEventSlim(false);
                     _pendingOrderResponse[orderId] = eventSlim;
 
-                    _client.ClientSocket.cancelOrder(orderId, new OrderCancel());
+                    _client.ClientSocket.cancelOrder(orderId);
 
                     if (!eventSlim.Wait(_responseTimeout))
                     {
@@ -741,7 +741,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         {
             if (!IsConnected)
             {
-                if (_ibAutomater.IsWithinScheduledServerResetTimes())
+                if (_ibAutomater != null && _ibAutomater.IsWithinScheduledServerResetTimes())
                 {
                     // Occasionally the disconnection due to the IB reset period might last
                     // much longer than expected during weekends (even up to the cash sync time).
@@ -838,17 +838,18 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
             Log.Trace("InteractiveBrokersBrokerage.Connect(): not connected, start connecting now...");
 
-            var lastAutomaterStartResult = _ibAutomater.GetLastStartResult();
-            if (lastAutomaterStartResult.HasError)
+            if (_ibAutomater != null)
             {
-                lastAutomaterStartResult = _ibAutomater.Start(false);
-                CheckIbAutomaterError(lastAutomaterStartResult);
-                // There was an error but we did not throw, must be another 2FA timeout, we can't continue
+                var lastAutomaterStartResult = _ibAutomater.GetLastStartResult();
                 if (lastAutomaterStartResult.HasError)
                 {
-                    // we couldn't start IBAutomater, so we cannot connect
-                    OnMessage(new BrokerageMessageEvent(BrokerageMessageType.Warning, "IBAutomaterWarning", $"Unable to restart IBAutomater: {lastAutomaterStartResult.ErrorMessage}"));
-                    return;
+                    lastAutomaterStartResult = _ibAutomater.Start(false);
+                    CheckIbAutomaterError(lastAutomaterStartResult);
+                    if (lastAutomaterStartResult.HasError)
+                    {
+                        OnMessage(new BrokerageMessageEvent(BrokerageMessageType.Warning, "IBAutomaterWarning", $"Unable to restart IBAutomater: {lastAutomaterStartResult.ErrorMessage}"));
+                        return;
+                    }
                 }
             }
 
@@ -877,8 +878,9 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                     Disconnect();
 
                     // At initial startup or after a gateway restart, we need to wait for the gateway to be ready for a connect request.
-                    // Attempting to connect to the socket too early will get a SocketException: Connection refused.
-                    if (_cancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(2500)))
+                    // When using an existing gateway (no IBAutomater), skip this wait and proceed to eConnect().
+                    if (_ibAutomater != null &&
+                        _cancellationTokenSource.Token.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(2500)))
                     {
                         break;
                     }
@@ -1046,7 +1048,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
             }
 
             if (!_isDisposeCalled &&
-                !_ibAutomater.IsWithinScheduledServerResetTimes() &&
+                (_ibAutomater == null || !_ibAutomater.IsWithinScheduledServerResetTimes()) &&
                 IsConnected &&
                 // do not run heart beat if we are close to daily restarts
                 DateTime.Now.TimeOfDay < _heartBeatTimeLimit &&
@@ -1326,7 +1328,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
             _aggregator.DisposeSafely();
             _ibAutomater?.Stop();
-            _ibAutomater.DisposeSafely();
+            _ibAutomater?.DisposeSafely();
 
             _messagingRateLimiter.DisposeSafely();
             _concurrentHistoryRequests.DisposeSafely();
@@ -1419,31 +1421,31 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
             _subscriptionManager.SubscribeImpl += (s, t) => Subscribe(s);
             _subscriptionManager.UnsubscribeImpl += (s, t) => Unsubscribe(s);
 
-            Log.Trace("InteractiveBrokersBrokerage.InteractiveBrokersBrokerage(): Starting IB Automater...");
-
-            // start IB Gateway
-            var exportIbGatewayLogs = true; // Config.GetBool("ib-export-ibgateway-logs");
-            _ibAutomater = new IBAutomater.IBAutomater(ibDirectory, ibVersion, userName, password, tradingMode, port, exportIbGatewayLogs);
-            _ibAutomater.OutputDataReceived += OnIbAutomaterOutputDataReceived;
-            _ibAutomater.ErrorDataReceived += OnIbAutomaterErrorDataReceived;
-            _ibAutomater.Exited += OnIbAutomaterExited;
-            _ibAutomater.Restarted += OnIbAutomaterRestarted;
-
-            try
+            if (!string.IsNullOrEmpty(ibDirectory))
             {
-                CheckIbAutomaterError(_ibAutomater.Start(false));
+                Log.Trace("InteractiveBrokersBrokerage.InteractiveBrokersBrokerage(): Starting IB Automater...");
+                var exportIbGatewayLogs = true;
+                _ibAutomater = new IBAutomater.IBAutomater(ibDirectory, ibVersion, userName, password, tradingMode, port, exportIbGatewayLogs);
+                _ibAutomater.OutputDataReceived += OnIbAutomaterOutputDataReceived;
+                _ibAutomater.ErrorDataReceived += OnIbAutomaterErrorDataReceived;
+                _ibAutomater.Exited += OnIbAutomaterExited;
+                _ibAutomater.Restarted += OnIbAutomaterRestarted;
+                try
+                {
+                    CheckIbAutomaterError(_ibAutomater.Start(false));
+                }
+                catch
+                {
+                    _ibAutomater.DisposeSafely();
+                    throw;
+                }
+                _weeklyRestartUtcTime = weeklyRestartUtcTime ?? _defaultWeeklyRestartUtcTime;
+                StartGatewayWeeklyRestartTask();
             }
-            catch
+            else
             {
-                // we are going the kill the deployment, let's clean up the automater
-                _ibAutomater.DisposeSafely();
-                throw;
+                Log.Trace($"InteractiveBrokersBrokerage.InteractiveBrokersBrokerage(): ib-tws-dir is empty; connecting to existing IB Gateway at {host}:{port}, skipping IBAutomater.");
             }
-
-            // default the weekly restart to one hour before FX market open (GetNextWeekendReconnectionTimeUtc)
-            _weeklyRestartUtcTime = weeklyRestartUtcTime ?? _defaultWeeklyRestartUtcTime;
-            // schedule the weekly IB Gateway restart
-            StartGatewayWeeklyRestartTask();
 
             Log.Trace($"InteractiveBrokersBrokerage.InteractiveBrokersBrokerage(): Host: {host}, Port: {port}, Account: {account}, AgentDescription: {agentDescription}");
 
@@ -1598,8 +1600,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 if (order.Type == OrderType.OptionExercise)
                 {
                     // IB API requires exerciseQuantity to be positive
-                    _client.ClientSocket.exerciseOptions(ibOrderId, contract, 1, decimal.ToInt32(order.AbsoluteQuantity), _account, 0,
-                        string.Empty, string.Empty, false);
+                    _client.ClientSocket.exerciseOptions(ibOrderId, contract, 1, decimal.ToInt32(order.AbsoluteQuantity), _account, 0);
                 }
                 else
                 {
@@ -2211,7 +2212,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 return;
             }
 
-            var isResetTime = _ibAutomater.IsWithinScheduledServerResetTimes();
+            var isResetTime = _ibAutomater != null && _ibAutomater.IsWithinScheduledServerResetTimes();
 
             if (!isResetTime)
             {
@@ -2725,7 +2726,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// For combo orders, it will wait until all the orders in the group have filled before emitting the events.
         /// If all orders in the group are not filled within a certain time, it will emit the events for the orders that have filled so far.
         /// </summary>
-        private void EmitOrderFill(Order order, IB.ExecutionDetailsEventArgs executionDetails, CommissionAndFeesReport commissionReport, bool forceFillEmission = false)
+        private void EmitOrderFill(Order order, IB.ExecutionDetailsEventArgs executionDetails, CommissionReport commissionReport, bool forceFillEmission = false)
         {
             List<PendingFillEvent> pendingOrdersFillDetails = null;
 
@@ -2766,7 +2767,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 var remainingQuantity = Convert.ToInt32(absoluteQuantity - totalQuantityFilled);
                 var price = NormalizePriceToLean(targetOrderExecutionDetails.Execution.Price, targetOrder.Symbol);
                 var orderFee = new OrderFee(new CashAmount(
-                    Convert.ToDecimal(targetOrderCommissionReport.CommissionAndFees),
+                    Convert.ToDecimal(targetOrderCommissionReport.Commission),
                     targetOrderCommissionReport.Currency.ToUpperInvariant()));
 
                 // set order status based on remaining quantity
@@ -4662,7 +4663,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// <returns>True if selection can take place</returns>
         public bool CanPerformSelection()
         {
-            return !_ibAutomater.IsWithinScheduledServerResetTimes() && IsConnected;
+            return (_ibAutomater == null || !_ibAutomater.IsWithinScheduledServerResetTimes()) && IsConnected;
         }
 
         /// <summary>
@@ -5103,7 +5104,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         public override bool ShouldPerformCashSync(DateTime currentTimeUtc)
         {
             return base.ShouldPerformCashSync(currentTimeUtc)
-                && !_ibAutomater.IsWithinScheduledServerResetTimes()
+                && (_ibAutomater == null || !_ibAutomater.IsWithinScheduledServerResetTimes())
                 && IsConnected;
         }
 
@@ -5156,7 +5157,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
             {
                 Task.Factory.StartNew(() =>
                 {
-                    _ibAutomater.Stop();
+                    _ibAutomater?.Stop();
                     var message = "2FA authentication confirmation required to reconnect.";
                     OnMessage(BrokerageMessageEvent.Disconnected(message));
                     OnMessage(new BrokerageMessageEvent(BrokerageMessageType.ActionRequired, "2FAAuthRequired", message));
@@ -5190,6 +5191,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// </summary>
         private void StartGatewayRestartTask()
         {
+            if (_ibAutomater == null) return;
             try
             {
                 if (_isDisposeCalled || IsRestartInProgress())
@@ -5251,6 +5253,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// </summary>
         private void StartGatewayWeeklyRestartTask()
         {
+            if (_ibAutomater == null) return;
             if (_isDisposeCalled)
             {
                 Log.Trace("InteractiveBrokersBrokerage.StartGatewayWeeklyRestartTask(): skipped request: we are disposed");
@@ -5342,6 +5345,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 return;
             }
 
+            if (_ibAutomater == null) return;
             // check if IBGateway was closed because of an IBAutomater error, die if so
             var result = _ibAutomater.GetLastStartResult();
             if (IsRecuperable2FATimeout(result))
@@ -5414,6 +5418,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
         private TimeSpan GetRestartDelay()
         {
+            if (_ibAutomater == null) return _defaultRestartDelay;
             // during weekends wait until one hour before FX market open before restarting IBAutomater
             return _ibAutomater.IsWithinWeekendServerResetTimes()
                ? GetNextWeekendReconnectionTimeUtc() - DateTime.UtcNow
@@ -5422,6 +5427,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
         private TimeSpan GetWeeklyRestartDelay()
         {
+            if (_ibAutomater == null) return _defaultRestartDelay;
             var utcNow = DateTime.UtcNow;
             // during weekends (including the whole Sunday) we wait until the time configured by the user
             if (_ibAutomater.IsWithinWeekendServerResetTimes() || utcNow.DayOfWeek == DayOfWeek.Sunday)
@@ -5440,6 +5446,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
         private void OnIbAutomaterRestarted(object sender, EventArgs e)
         {
+            if (_ibAutomater == null) return;
             Log.Trace("InteractiveBrokersBrokerage.OnIbAutomaterRestarted()");
 
             _stateManager.Reset();
@@ -5633,14 +5640,21 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
         /// <summary>
         /// Validate the user of this project has permission to be using it via our web API.
+        /// When no QuantConnect credentials are configured (local/self-hosted), skip validation
+        /// so the engine can run with IB (or other brokerages) without a QuantConnect subscription.
         /// </summary>
         private static void ValidateSubscription()
         {
+            var userId = Globals.UserId;
+            var token = Globals.UserToken;
+            if (userId == 0 || string.IsNullOrEmpty(token))
+            {
+                Log.Trace("InteractiveBrokersBrokerage.ValidateSubscription(): No QuantConnect credentials (job-user-id/api-access-token); skipping subscription validation for local use.");
+                return;
+            }
             try
             {
                 var productId = 181;
-                var userId = Globals.UserId;
-                var token = Globals.UserToken;
                 var organizationId = Globals.OrganizationID;
                 // Verify we can authenticate with this user and token
                 var api = new ApiConnection(userId, token);

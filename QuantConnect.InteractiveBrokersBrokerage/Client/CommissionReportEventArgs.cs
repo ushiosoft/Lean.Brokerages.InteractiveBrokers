@@ -26,12 +26,12 @@ namespace QuantConnect.Brokerages.InteractiveBrokers.Client
         /// <summary>
         /// The structure that contains commission details.
         /// </summary>
-        public CommissionAndFeesReport CommissionReport { get; }
+        public CommissionReport CommissionReport { get; }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CommissionReportEventArgs"/> class
         /// </summary>
-        public CommissionReportEventArgs(CommissionAndFeesReport commissionReport)
+        public CommissionReportEventArgs(CommissionReport commissionReport)
         {
             CommissionReport = commissionReport;
         }
@@ -41,7 +41,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers.Client
         /// </summary>
         public override string ToString()
         {
-            return $"ExecId: {CommissionReport.ExecId}, Commission: {CommissionReport.CommissionAndFees}, Currency: {CommissionReport.Currency}";
+            return $"ExecId: {CommissionReport.ExecId}, Commission: {CommissionReport.Commission}, Currency: {CommissionReport.Currency}";
         }
     }
 }

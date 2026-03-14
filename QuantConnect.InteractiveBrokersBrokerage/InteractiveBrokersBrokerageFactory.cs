@@ -45,9 +45,9 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// </remarks>
         public override Dictionary<string, string> BrokerageData => new Dictionary<string, string>
         {
-            { "ib-account", Config.Get("ib-account") },
-            { "ib-user-name", Config.Get("ib-user-name") },
-            { "ib-password", Config.Get("ib-password") },
+            { "ib-account", Config.Get("ib-account") ?? Environment.GetEnvironmentVariable("QC_IB_ACCOUNT") },
+            { "ib-user-name", Config.Get("ib-user-name") ?? Environment.GetEnvironmentVariable("QC_IB_USER_NAME") ?? "" },
+            { "ib-password", Config.Get("ib-password") ?? Environment.GetEnvironmentVariable("QC_IB_PASSWORD") ?? "" },
             { "ib-trading-mode", Config.Get("ib-trading-mode") },
             { "ib-agent-description", Config.Get("ib-agent-description") },
             { "ib-weekly-restart-utc-time", Config.Get("ib-weekly-restart-utc-time") },
@@ -70,10 +70,11 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         {
             var errors = new List<string>();
 
-            // read values from the brokerage datas
+            // read values from the brokerage datas (env vars override for Docker/k8s)
             var port = Config.GetInt("ib-port", 4001);
-            var host = Config.Get("ib-host", "127.0.0.1");
-            var twsDirectory = Config.Get("ib-tws-dir", "C:\\Jts");
+            if (int.TryParse(Environment.GetEnvironmentVariable("QC_IB_PORT"), out var portEnv)) port = portEnv;
+            var host = Config.Get("ib-host", "127.0.0.1") ?? Environment.GetEnvironmentVariable("QC_IB_HOST") ?? "127.0.0.1";
+            var twsDirectory = Config.Get("ib-tws-dir") ?? Environment.GetEnvironmentVariable("QC_IB_TWS_DIR") ?? "C:\\Jts";
             var ibVersion = Config.Get("ib-version", InteractiveBrokersBrokerage.DefaultVersion);
 
             var account = Read<string>(job.BrokerageData, "ib-account", errors);
