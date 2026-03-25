@@ -2222,9 +2222,8 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
 
             if (_ibAutomater == null)
             {
-                // Self-hosted: can't check reset schedule, treat as real disconnect
-                OnMessage(BrokerageMessageEvent.Disconnected("Connection with Interactive Brokers lost. " +
-                                                             "This could be because of internet connectivity issues or a log in from another location."));
+                // Self-hosted: can't check reset schedule; transient 1100 errors are
+                // normal and resolve via automatic reconnect. Just return silently.
                 return;
             }
 
