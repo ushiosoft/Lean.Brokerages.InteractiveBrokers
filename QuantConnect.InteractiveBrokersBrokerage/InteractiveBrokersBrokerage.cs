@@ -2220,6 +2220,14 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 return;
             }
 
+            if (_ibAutomater == null)
+            {
+                // Self-hosted: can't check reset schedule, treat as real disconnect
+                OnMessage(BrokerageMessageEvent.Disconnected("Connection with Interactive Brokers lost. " +
+                                                             "This could be because of internet connectivity issues or a log in from another location."));
+                return;
+            }
+
             var isResetTime = _ibAutomater.IsWithinScheduledServerResetTimes();
 
             if (!isResetTime)
