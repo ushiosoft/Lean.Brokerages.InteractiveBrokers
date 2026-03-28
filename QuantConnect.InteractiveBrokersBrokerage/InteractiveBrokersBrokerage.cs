@@ -4678,7 +4678,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         /// <returns>True if selection can take place</returns>
         public bool CanPerformSelection()
         {
-            return !_ibAutomater.IsWithinScheduledServerResetTimes() && IsConnected;
+            return (_ibAutomater == null || !_ibAutomater.IsWithinScheduledServerResetTimes()) && IsConnected;
         }
 
         /// <summary>
@@ -5119,7 +5119,7 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
         public override bool ShouldPerformCashSync(DateTime currentTimeUtc)
         {
             return base.ShouldPerformCashSync(currentTimeUtc)
-                && !_ibAutomater.IsWithinScheduledServerResetTimes()
+                && (_ibAutomater == null || !_ibAutomater.IsWithinScheduledServerResetTimes())
                 && IsConnected;
         }
 
