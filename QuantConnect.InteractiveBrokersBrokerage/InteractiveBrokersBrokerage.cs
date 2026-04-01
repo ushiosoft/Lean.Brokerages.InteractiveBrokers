@@ -1065,6 +1065,16 @@ namespace QuantConnect.Brokerages.InteractiveBrokers
                 }
                 return result;
             }
+
+            // Self-hosted mode: if not connected and not being disposed, signal
+            // failure so the heartbeat thread triggers reconnection. Without
+            // IBAutomater there is no other mechanism to recover from gateway restarts.
+            if (_ibAutomater == null && !_isDisposeCalled && !IsConnected && !_stateManager.IsConnecting)
+            {
+                Log.Trace("InteractiveBrokersBrokerage.HeartBeat(): self-hosted, not connected — will trigger reconnection");
+                return false;
+            }
+
             // expected
             return true;
         }
